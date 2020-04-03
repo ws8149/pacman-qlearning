@@ -46,10 +46,12 @@ class QLearnAgent(Agent):
         self.alpha = float(alpha)
         self.epsilon = float(epsilon)
         self.gamma = float(gamma)
-        self.numTraining = int(numTraining)
-        self.qValues = {}
+        self.numTraining = int(numTraining)                      
         # Count the number of games we have played
         self.episodesSoFar = 0
+
+        # Use counter because dictionary was too slow
+        self.qValues = util.Counter()
         self.prevState = None        
         self.prevAction = None
         self.prevScore = 0
@@ -81,13 +83,12 @@ class QLearnAgent(Agent):
     def getMaxAttempts(self):
         return self.maxAttempts    
 
-    # Returns q value, will return 0.0 if state not seen
-    def getQValue(self, s, a):
-        # Combine to get state action pair
-        if ( (s,a) in self.qValues.keys() ):            
-            return self.qValues[(s,a)]         
-        else:
+    # Returns q value
+    def getQValue(self, s, a):        
+        if a == Directions.STOP:
             return 0.0
+        else:            
+            return self.qValues[(s,a)]
     
     # Find max q values based on current legal action
     def getQMax(self, s, nextActions):
@@ -99,81 +100,71 @@ class QLearnAgent(Agent):
         else:
             return 0   
     
+    def qLearningUpdate(self, state):                      
+        # Perform Q learning update
+        if (self.prevAction != None):
+            # Get data for update
+            s = self.prevState
+            a = self.prevAction            
+            s_next = state
+            nextActions = self.getNextActions(state)  
+                        
+            R = state.getScore() - self.prevState.getScore()              
+            Qmax = self.getQMax(s_next, nextActions)                        
+            Q = self.getQValue(s,a)        
+            A = self.alpha
+            Y = self.gamma                      
+            
+            # Make update                                                                                               
+            self.qValues[ (s,a) ] =  Q + A * (R + Y * Qmax - Q )
+    
     # Gets the best action
     def getBestAction(self, s, nextActions):        
-        max_q = 0
+        largest_q = 0
         bestAction = None
 
         if (len(nextActions) > 0):            
             for a in nextActions:
-                q = self.getQValue(s,a)
-                if q > max_q or bestAction is None:
-                    max_q = q
-                    bestAction = a            
+                q = self.getQValue(s,a)                
+                if q > largest_q or bestAction is None:
+                    largest_q = q
+                    bestAction = a           
         
+        # If no good action was found, do random action
         if (bestAction == None):
             bestAction = random.choice(nextActions)
 
-        return bestAction    
+        return bestAction            
 
     
+    def getNextActions(self, state):
+        nextActions = state.getLegalPacmanActions()
+        if Directions.STOP in nextActions:
+            nextActions.remove(Directions.STOP) 
+
+        return nextActions
+
     
     # getAction
     #
     # The main method required by the game. Called every time that
     # Pacman is expected to move
-    def getAction(self, state):
-
-        # The data we have about the state of the game        
+    def getAction(self, state):               
+        # Perform Q Learning update
+        self.qLearningUpdate(state)         
         
-        legal = state.getLegalPacmanActions()
-        if Directions.STOP in legal:
-            legal.remove(Directions.STOP)
-        # print "Legal moves: ", legal
-        # print "Pacman position: ", state.getPacmanPosition()
-        # print "Ghost positions:" , state.getGhostPositions()
-        # print "Food locations: "
-        # print state.getFood()
-        # print "Score: ", state.getScore()
-                
-        s_next = state.getPacmanPosition()            
-        nextActions = state.getLegalPacmanActions()
+        # Get next actions
+        nextActions = self.getNextActions(state)         
 
-        # Perform Q learning update
-        if (self.prevAction != None):
-            # Get data for update
-            s = self.prevState.getPacmanPosition()
-            a = self.prevAction            
-            # print(nextActions)
-            # raw_input()
-            R = state.getScore() - self.prevState.getScore()              
-            Qmax = self.getQMax(s_next, nextActions)            
-            
-            Q = self.getQValue(s,a)        
-            A = self.alpha
-            Y = self.gamma          
-            updateVal = Q + A * (R + Y * Qmax - Q )
-            print("updateVal:" + str(updateVal))
-            # Make update                                                                                   
-            self.qValues[ (s,a) ] = Q + A * (R + Y * Qmax - Q )               
-
-        
-        if util.flipCoin(self.epsilon):
-            pick = random.choice(legal)
+        # Force exploration with epsilon               
+        if random.random() < self.epsilon:
+            pick = random.choice(nextActions)
         else:
-            pick = self.getBestAction(s_next, nextActions)        
-        
+            pick = self.getBestAction(state, nextActions) 
 
-        # Save current state as previous state        
+        # Save data before continuing        
         self.prevState = state
         self.prevAction = pick
-
-               
-        
-        # Now pick what action to take. For now a random choice among
-        # the legal moves
-        #pick = random.choice(legal)
-        # We have to return an action
         return pick
             
 
@@ -184,26 +175,16 @@ class QLearnAgent(Agent):
         
         print "A game just ended!"
 
-        # Get data for final update
-        s = self.prevState.getPacmanPosition()
-        a = self.prevAction
-        s_next = state.getPacmanPosition()            
-        nextActions = state.getLegalPacmanActions()
-        R = state.getScore() - self.prevState.getScore()              
-        Qmax = self.getQMax(s_next, nextActions)                    
-        Q = self.getQValue(s,a)        
-        A = self.alpha
-        Y = self.gamma
-
-        
-
-        # Make final update                                                                                                             
-        self.qValues[ (s,a) ] = Q + A * (R + Y * Qmax - Q )  
+        # Final update
+        self.qLearningUpdate(state)
 
         # Clear previous game data
         self.prevState = None
-        self.prevAction = None        
-        
+        self.prevAction = None       
+                
+        print "Completed runs: " + str(self.getEpisodesSoFar())        
+
+
         # Keep track of the number of games played, and set learning
         # parameters to zero when we are done with the pre-set number
         # of training episodes
